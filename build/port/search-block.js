@@ -24,6 +24,7 @@ var GROUP_EXTRA = {
   '제약':['제약', '바이오', '일반의약품·소비자헬스'], '장난감':['완구·캐릭터'], '캐릭터':['완구·캐릭터']
 };
 function buildGroups(){
+  GROUPS = {};
   var add = function(word, i){ var w = norm(word); if (w.length < 2 && !/^[a-z]+$/.test(w)) return; (GROUPS[w] = GROUPS[w] || new Set()).add(i); };
   var byName = {};
   U.forEach(function(u, i){

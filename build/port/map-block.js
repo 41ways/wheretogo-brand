@@ -136,7 +136,8 @@ function draw(){
   g.clearRect(0, 0, CW, CW);
   var hint = document.querySelector('.maphint'); if (hint) hint.style.opacity = k > 1 ? 0 : 1;   // 확대하면 이름과 겹치므로 숨긴다
   var cDot = cssv('--land-line'), cInk = cssv('--ink'), cPanel = cssv('--sea'), cAcc = cssv('--accent'), cFaint = cssv('--faint');
-  var r = Math.min(3.4, 1.35 * Math.sqrt(k)) * (CW < 480 ? .85 : 1);
+  var small = U.length < 400;   // 유명 모드처럼 목록이 작으면 점을 키우고 덜 확대해도 이름을 보인다
+  var r = Math.min(small ? 5 : 3.4, 1.35 * Math.sqrt(k)) * (CW < 480 ? .85 : 1) * (small ? 1.7 : 1);
   var inView = function(u){ var x = sx(u), y = sy(u); return x > -20 && y > -20 && x < CW + 20 && y < CW + 20; };
   var sug = $('#sug'), hl = HL && sug && !sug.hidden ? new Set(HL) : null, got = {};
   S.list.forEach(function(q){ got[q.id] = q; });
@@ -194,7 +195,7 @@ function draw(){
   S.list.slice().sort(function(a, b){ return a.rank - b.rank; }).forEach(function(q){
     if (q.id !== S.lastId && q.id !== ansId && inView(U[BY[q.id]])) label(U[BY[q.id]], U[BY[q.id]].name, '600 11px ' + mono, cInk);
   });
-  if (k >= 2.6 && easyOn()) {
+  if (k >= (small ? 1.5 : 2.6) && easyOn()) {
     var budget = 90;
     for (var j = 0; j < U.length && budget > 0; j++) {
       var v = U[j];

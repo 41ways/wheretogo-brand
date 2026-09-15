@@ -160,6 +160,59 @@ block("fetch('map.json').then(function(r){ return r.json(); }).then(function(m){
 ''')
 rep("}).catch(function(e){ msg('지도를 못 불러왔습니다: ' + e.message, true); });", "}).catch(function(e){ msg('브랜드 목록을 못 불러왔습니다: ' + e.message, true); });")
 
+# ══ 유명 모드 (200개 · 재조정 가중치 · 연습 판) — 기본 판은 그대로 두고 모드만 더한다
+FVER = hashlib.sha1((ROOT / 'data' / 'brands_famous.json').read_bytes()).hexdigest()[:10]
+rep('<button class="start ghost" id="btnHard">하드 모드</button>',
+    '<button class="start ghost" id="btnHard">하드 모드</button>\n      <button class="start ghost" id="btnFamous">유명 모드</button>')
+rep("function freeStat(add, hard){\n  var key = hard ? 'brand-hard' : 'brand-free';",
+    "function freeStat(add, hard){\n  var key = hard === 'famous' ? 'brand-famous' : hard ? 'brand-hard' : 'brand-free';")
+rep("[line('무한 모드', freeStat(0)), line('하드 모드', freeStat(0, true))]",
+    "[line('무한 모드', freeStat(0)), line('하드 모드', freeStat(0, true)), line('유명 모드', freeStat(0, 'famous'))]")
+rep("function startFree(hard){\n  var b = $(hard ? '#btnHard' : '#btnFree'), label = b.textContent,",
+    "function startFree(hard, famous){\n  var b = $(famous ? '#btnFamous' : hard ? '#btnHard' : '#btnFree'), label = b.textContent,")
+rep("  api('/api/free').then(function(r){", "  (famous ? loadFamous().then(function(){ return api('/api/famous'); }) : api('/api/free')).then(function(r){")
+rep("    S.free = r.rid; S.hard = !!hard;", "    S.free = r.rid; S.hard = !!hard; S.famous = !!famous; useList(famous ? FAM_U : BASE_U); S.n = r.n;")
+rep("  S.free = null; S.daily = null; S.hard = false;", "  S.free = null; S.daily = null; S.hard = false; S.famous = false; useList(BASE_U); S.n = S.dayN || S.n;")
+rep("  var call = S.free ? api('/api/free/guess', { rid:S.free, id:u.id })",
+    "  var call = S.free ? api(S.famous ? '/api/famous/guess' : '/api/free/guess', { rid:S.free, id:u.id, pid:PID, seq:S.list.length + 1, hard:!!S.hard })")
+rep("(S.free ? api('/api/free/giveup', { rid:S.free })",
+    "(S.free ? api(S.famous ? '/api/famous/giveup' : '/api/free/giveup', { rid:S.free, pid:PID, seq:S.list.length, hard:!!S.hard })")
+rep("freeStat(S.list.length, S.hard); }", "freeStat(S.list.length, S.famous ? 'famous' : S.hard); }")
+rep("S.free ? (S.hard ? '하드 모드' : '무한 모드')", "S.free ? (S.famous ? '유명 모드' : S.hard ? '하드 모드' : '무한 모드')")
+rep("(S.free ? (S.hard ? '하드 모드 · ' : '무한 모드 · ') : '')", "(S.free ? (S.famous ? '유명 모드 · ' : S.hard ? '하드 모드 · ' : '무한 모드 · ') : '')")
+rep("    var f = freeStat(0, S.hard);", "    var f = freeStat(0, S.famous ? 'famous' : S.hard);")
+rep("startFree(S.hard); };", "startFree(S.hard, S.famous); };")
+rep("$('#btnHard').addEventListener('click', function(){ startFree(true); });",
+    "$('#btnHard').addEventListener('click', function(){ startFree(true); });\n$('#btnFamous').addEventListener('click', function(){ startFree(false, true); });")
+rep("    S.day = r.day; S.no = r.no; S.n = r.n;", "    S.day = r.day; S.no = r.no; S.n = r.n; S.dayN = r.n;")
+# 닮음 말은 목록 크기에 비례해서 (1,603개일 때 예전 문턱과 같다)
+rep("  if (rank <= 5) return '코앞';\n  if (rank <= 25) return '아주 닮음';\n  if (rank <= 100) return '닮음';\n  if (rank <= 300) return '그럭저럭';\n  if (rank <= 800) return '다름';",
+    "  var f = rank / S.n;\n  if (rank <= 1 || f <= .0031) return '코앞';\n  if (f <= .0156) return '아주 닮음';\n  if (f <= .0624) return '닮음';\n  if (f <= .1872) return '그럭저럭';\n  if (f <= .4991) return '다름';")
+# 목록 바꾸기 — 기본 목록과 유명 목록을 오간다
+rep("fetch('data/brands.json?v=" + VER + "').then(function(r){ return r.json(); }).then(function(m){\n  U = m.brands;\n  U.forEach(function(u, i){\n    BY[u.id] = i;\n    u.cho = cho(u.name);\n    u.keys = [norm(u.name), norm(u.en)].concat(u.alias.map(norm)).filter(Boolean);\n  });\n  buildGroups();\n",
+    f"""var BASE_U = null, FAM_U = null;
+function prepList(list){{
+  list.forEach(function(u){{ u.cho = cho(u.name); u.keys = [norm(u.name), norm(u.en)].concat(u.alias.map(norm)).filter(Boolean); }});
+  return list;
+}}
+function useList(list){{
+  if (!list || U === list) return;
+  U = list; BY = {{}};
+  U.forEach(function(u, i){{ BY[u.id] = i; }});
+  buildGroups();
+  VIEW.k = 1; VIEW.x = VIEW.y = 0; HOV = -1; HL = null;
+  draw();
+}}
+function loadFamous(){{
+  if (FAM_U) return Promise.resolve();
+  return fetch('data/brands_famous.json?v={FVER}').then(function(r){{ return r.json(); }}).then(function(m){{ FAM_U = prepList(m.brands); }});
+}}
+fetch('data/brands.json?v={VER}').then(function(r){{ return r.json(); }}).then(function(m){{
+  BASE_U = prepList(m.brands);
+  U = null; useList(BASE_U);
+""")
+rep("      <li><b>하드 모드</b>는", "      <li><b>유명 모드</b>는 한국에서 잘 알려진 브랜드 <b>200곳</b>만으로 하는 연습 판입니다. 목록이 작은 만큼 업종을 더 무겁게 보고, 닮은 점도 가장 닮은 10% 안이면 알려 줍니다. 순위에 오르지 않습니다.</li>\n      <li><b>하드 모드</b>는")
+
 leftover = [w for w in ('시·군', '청사', 'map.json', 'eodigun', '도·권역') if w in s]
 assert not leftover, leftover
 open(DST, 'w', encoding='utf-8').write(s)

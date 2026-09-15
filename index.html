@@ -295,6 +295,7 @@ dialog::backdrop{background:rgba(17,17,17,.38)}
     <div class="modes">
       <button class="start ghost" id="btnFree">무한 모드</button>
       <button class="start ghost" id="btnHard">하드 모드</button>
+      <button class="start ghost" id="btnFamous">유명 모드</button>
     </div>
     <p class="tfree" id="tfree"></p>
     <div class="trow">
@@ -383,6 +384,7 @@ dialog::backdrop{background:rgba(17,17,17,.38)}
       <li>부른 곳이 어떤 특징에서 정답과 특히 닮았으면(그 특징에서 정답과 가장 닮은 5% 안) <b>닮은 점</b>으로 알려 줍니다 — 예: <b>상품 · 가격대</b>.</li>
       <li>지도는 닮은 브랜드끼리 모이게 펼친 <b>의미 지도</b>입니다. 점에 마우스를 올리면 이름이 보이고, <b>눌러서 바로 부를 수</b> 있습니다 (손가락은 한 번 눌러 이름을 보고 한 번 더 눌러 부릅니다). 휠이나 두 손가락으로 확대하면 이름이 보입니다.</li>
       <li><b>하루 한 판</b>입니다. 맞히거나 포기하면 그날은 끝이고, <b>무한 모드</b>는 오늘 문제와 따로 정답을 뽑아 몇 판이든 할 수 있습니다 (순위에 오르지 않습니다).</li>
+      <li><b>유명 모드</b>는 한국에서 잘 알려진 브랜드 <b>200곳</b>만으로 하는 연습 판입니다. 목록이 작은 만큼 업종을 더 무겁게 보고, 닮은 점도 가장 닮은 10% 안이면 알려 줍니다. 순위에 오르지 않습니다.</li>
       <li><b>하드 모드</b>는 무한 모드에서 지도 도움을 끈 판입니다. 점 이름이 보이지 않고 <b>이름을 적어서만</b> 부릅니다.</li>
       <li>시계는 <b>첫 추측부터</b> 정답까지 서버가 잽니다. 순위는 <b>적게 부른 순</b>, 횟수가 같으면 빠른 순입니다. 포기하면 순위에 오르지 않습니다.</li>
       <li>한글·영문 이름과 별칭, 초성으로 찾을 수 있습니다 — <b>ㄴㅇㅋ</b> → 나이키, <b>lvmh</b>. 업종 이름을 치면 그 업종이 모두 나오고 지도에 표시됩니다 — <b>커피</b>, <b>슈퍼카</b>, <b>명품</b>, <b>재벌</b>.</li>
@@ -446,7 +448,7 @@ var S = {
 };
 /* 판수와 평균 횟수는 이 브라우저에만 적는다. 무한 모드와 하드 모드는 따로 센다 */
 function freeStat(add, hard){
-  var key = hard ? 'brand-hard' : 'brand-free';
+  var key = hard === 'famous' ? 'brand-famous' : hard ? 'brand-hard' : 'brand-free';
   var v = (lsGet(key) || '').split(',').map(Number);
   var n = v[0] > 0 ? v[0] : 0, sum = v[1] > 0 ? v[1] : 0;
   if (add) { n += 1; sum += add; lsSet(key, n + ',' + sum); }
@@ -454,7 +456,7 @@ function freeStat(add, hard){
 }
 function renderFreeStat(){
   var line = function(label, f){ return f.n ? label + ' ' + f.n + '판 · 평균 ' + (Math.round(f.avg * 10) / 10) + '번' : ''; };
-  $('#tfree').textContent = [line('무한 모드', freeStat(0)), line('하드 모드', freeStat(0, true))].filter(Boolean).join('  /  ');
+  $('#tfree').textContent = [line('무한 모드', freeStat(0)), line('하드 모드', freeStat(0, true)), line('유명 모드', freeStat(0, 'famous'))].filter(Boolean).join('  /  ');
 }
 /* 지도 도움(올리면 이름, 누르면 부르기)은 기본으로 켜 있고, 하드 모드에서만 끈다 */
 function easyOn(){ return !!(S.day != null && !(S.free && S.hard) && !S.solved && !S.gaveup); }
@@ -477,11 +479,12 @@ function heat(rank){
 }
 function word(rank){
   if (rank === 0) return '정답';
-  if (rank <= 5) return '코앞';
-  if (rank <= 25) return '아주 닮음';
-  if (rank <= 100) return '닮음';
-  if (rank <= 300) return '그럭저럭';
-  if (rank <= 800) return '다름';
+  var f = rank / S.n;
+  if (rank <= 1 || f <= .0031) return '코앞';
+  if (f <= .0156) return '아주 닮음';
+  if (f <= .0624) return '닮음';
+  if (f <= .1872) return '그럭저럭';
+  if (f <= .4991) return '다름';
   return '아주 다름';
 }
 function pts(v){ return (v == null ? 0 : v).toFixed(2) + '점'; }
@@ -654,7 +657,8 @@ function draw(){
   g.clearRect(0, 0, CW, CW);
   var hint = document.querySelector('.maphint'); if (hint) hint.style.opacity = k > 1 ? 0 : 1;   // 확대하면 이름과 겹치므로 숨긴다
   var cDot = cssv('--land-line'), cInk = cssv('--ink'), cPanel = cssv('--sea'), cAcc = cssv('--accent'), cFaint = cssv('--faint');
-  var r = Math.min(3.4, 1.35 * Math.sqrt(k)) * (CW < 480 ? .85 : 1);
+  var small = U.length < 400;   // 유명 모드처럼 목록이 작으면 점을 키우고 덜 확대해도 이름을 보인다
+  var r = Math.min(small ? 5 : 3.4, 1.35 * Math.sqrt(k)) * (CW < 480 ? .85 : 1) * (small ? 1.7 : 1);
   var inView = function(u){ var x = sx(u), y = sy(u); return x > -20 && y > -20 && x < CW + 20 && y < CW + 20; };
   var sug = $('#sug'), hl = HL && sug && !sug.hidden ? new Set(HL) : null, got = {};
   S.list.forEach(function(q){ got[q.id] = q; });
@@ -712,7 +716,7 @@ function draw(){
   S.list.slice().sort(function(a, b){ return a.rank - b.rank; }).forEach(function(q){
     if (q.id !== S.lastId && q.id !== ansId && inView(U[BY[q.id]])) label(U[BY[q.id]], U[BY[q.id]].name, '600 11px ' + mono, cInk);
   });
-  if (k >= 2.6 && easyOn()) {
+  if (k >= (small ? 1.5 : 2.6) && easyOn()) {
     var budget = 90;
     for (var j = 0; j < U.length && budget > 0; j++) {
       var v = U[j];
@@ -749,6 +753,7 @@ var GROUP_EXTRA = {
   '제약':['제약', '바이오', '일반의약품·소비자헬스'], '장난감':['완구·캐릭터'], '캐릭터':['완구·캐릭터']
 };
 function buildGroups(){
+  GROUPS = {};
   var add = function(word, i){ var w = norm(word); if (w.length < 2 && !/^[a-z]+$/.test(w)) return; (GROUPS[w] = GROUPS[w] || new Set()).add(i); };
   var byName = {};
   U.forEach(function(u, i){
@@ -840,7 +845,7 @@ function guess(i){
     return;
   }
   S.busy = true; msg('…');
-  var call = S.free ? api('/api/free/guess', { rid:S.free, id:u.id })
+  var call = S.free ? api(S.famous ? '/api/famous/guess' : '/api/free/guess', { rid:S.free, id:u.id, pid:PID, seq:S.list.length + 1, hard:!!S.hard })
                     : api('/api/guess', { day:S.day, pid:PID, id:u.id, name:lsGet('brand-name') || '' });
   call.then(function(r){
     S.busy = false;
@@ -851,13 +856,13 @@ function guess(i){
     S.lastId = r.id;
     if (r.correct) {
       S.solved = true; S.answer = r.answer;
-      if (S.free) { S.elapsed = now() - S.started; freeStat(S.list.length, S.hard); }
+      if (S.free) { S.elapsed = now() - S.started; freeStat(S.list.length, S.famous ? 'famous' : S.hard); }
       else { S.elapsed = r.elapsed; S.order = r.order; S.board = r.board; }
     }
     msg('');
     render();
     if (S.solved) { var round = S.free; celebrate(); setTimeout(function(){ if (S.free === round && S.solved && !$('#game').hidden) openDone(); }, 520); }
-    else $('#q').focus();
+    else if (matchMedia('(hover:hover)').matches) $('#q').focus();   // 손가락으로 누른 뒤 자판이 올라와 화면이 밀리지 않게
   }).catch(function(e){
     S.busy = false;
     msg(e.status === 409 ? '날짜가 바뀌었습니다 — 새로고침해 주세요' : '못 보냈습니다: ' + e.message, true);
@@ -867,7 +872,7 @@ function guess(i){
 function giveup(){
   if (S.solved || S.gaveup || S.day == null) return;
   if (!confirm(S.free ? '이 판을 접고 정답을 볼까요?' : '포기하면 정답을 보여 주고, 순위에는 오르지 않습니다. 포기할까요?')) return;
-  (S.free ? api('/api/free/giveup', { rid:S.free }) : api('/api/giveup', { day:S.day, pid:PID })).then(function(r){
+  (S.free ? api(S.famous ? '/api/famous/giveup' : '/api/free/giveup', { rid:S.free, pid:PID, seq:S.list.length, hard:!!S.hard }) : api('/api/giveup', { day:S.day, pid:PID })).then(function(r){
     S.gaveup = true; S.answer = r.answer; render(); openDone();
   }).catch(function(e){ msg('못 보냈습니다: ' + e.message, true); });
 }
@@ -876,7 +881,7 @@ function giveup(){
 var disarm = function(){};   // 손가락으로 한 번 눌러 둔 칸 — 판이 바뀌거나 무엇이든 부르면 풀린다
 function render(){
   disarm();
-  $('#no').textContent = S.free ? (S.hard ? '하드 모드' : '무한 모드') : (S.no ? '제' + S.no + '호' : '');
+  $('#no').textContent = S.free ? (S.famous ? '유명 모드' : S.hard ? '하드 모드' : '무한 모드') : (S.no ? '제' + S.no + '호' : '');
   var done = S.solved || S.gaveup;
   $('#askform').hidden = done;
   $('#q').disabled = $('#go').disabled = done || S.day == null;
@@ -932,9 +937,9 @@ function renderDone(){
   var box = $('#done');
   if (!S.solved && !S.gaveup) { box.hidden = true; return; }
   var a = S.answer, h = '';
-  $('#doneTitle').textContent = (S.free ? (S.hard ? '하드 모드 · ' : '무한 모드 · ') : '') + (S.solved ? '맞혔습니다' : '포기했습니다');
+  $('#doneTitle').textContent = (S.free ? (S.famous ? '유명 모드 · ' : S.hard ? '하드 모드 · ' : '무한 모드 · ') : '') + (S.solved ? '맞혔습니다' : '포기했습니다');
   if (S.free) {
-    var f = freeStat(0, S.hard);
+    var f = freeStat(0, S.famous ? 'famous' : S.hard);
     h += shapeSvg(a.id);
     h += '<h2>' + (S.solved ? '🏷️ ' : '정답은 ') + esc(a.full) + '</h2>';
     h += '<p class="big">' + S.list.length + '번 만에' + (S.solved ? ' · ' + fmtKo(S.elapsed) : '') + '</p>';
@@ -942,7 +947,7 @@ function renderDone(){
     h += '<div class="row"><button class="btn dark" id="again">한 판 더</button>' +
          '<button class="btn" id="quitFree">그만두기</button></div>';
     box.innerHTML = h; box.hidden = false;
-    $('#again').onclick = function(){ $('#dlgDone').close(); startFree(S.hard); };
+    $('#again').onclick = function(){ $('#dlgDone').close(); startFree(S.hard, S.famous); };
     $('#quitFree').onclick = endFree;
     return;
   }
@@ -1162,25 +1167,28 @@ function titleFinished(){
 
 /* 무한 모드·하드 모드 — 오늘 판은 잠시 치워 두고 새 판을 연다. 기록은 서버에 남지 않는다.
    하드 모드는 같은 연습 판에서 지도 도움만 끈 것이다 — 이름을 적어서만 부른다 */
-function startFree(hard){
-  var b = $(hard ? '#btnHard' : '#btnFree'), label = b.textContent;
+function startFree(hard, famous){
+  var b = $(famous ? '#btnFamous' : hard ? '#btnHard' : '#btnFree'), label = b.textContent, fromTitle = !$('#title').hidden;
   b.disabled = true; b.textContent = '여는 중…';
-  api('/api/free').then(function(r){
+  (famous ? loadFamous().then(function(){ return api('/api/famous'); }) : api('/api/free')).then(function(r){
+    /* 기다리는 사이 타이틀을 떠났으면(시작을 눌러 오늘 판으로) 이 판은 버린다 — 오늘 판 기록이 연습 판에 섞이지 않게 */
+    if (fromTitle && $('#title').hidden) { b.disabled = false; b.textContent = label; return; }
     if (!S.free) S.daily = { list:S.list, solved:S.solved, gaveup:S.gaveup, started:S.started, elapsed:S.elapsed,
                              answer:S.answer, order:S.order, board:S.board, lastId:S.lastId };
-    S.free = r.rid; S.hard = !!hard; S.list = []; S.solved = false; S.gaveup = false;
+    S.free = r.rid; S.hard = !!hard; S.famous = !!famous; useList(famous ? FAM_U : BASE_U); S.n = r.n; S.list = []; S.solved = false; S.gaveup = false;
     S.started = null; S.elapsed = null; S.answer = null; S.order = null; S.board = null; S.lastId = null;
     b.disabled = false; b.textContent = label;
     msg(hard ? '어디든 하나 불러서 시작하세요.' : easyHint());
     startGame();
   }).catch(function(e){
     b.disabled = false; b.textContent = label;
-    msg('연습 판을 못 열었습니다: ' + e.message, true);
+    var t = '연습 판을 못 열었습니다: ' + e.message;
+    if (fromTitle) { $('#terr').hidden = false; $('#terr').textContent = t; } else msg(t, true);
   });
 }
 function endFree(){
   var d = S.daily || {};
-  S.free = null; S.daily = null; S.hard = false;
+  S.free = null; S.daily = null; S.hard = false; S.famous = false; useList(BASE_U); S.n = S.dayN || S.n;
   S.list = d.list || []; S.solved = !!d.solved; S.gaveup = !!d.gaveup; S.started = d.started || null;
   S.elapsed = d.elapsed == null ? null : d.elapsed; S.answer = d.answer || null;
   S.order = d.order || null; S.board = d.board || null; S.lastId = d.lastId || null;
@@ -1202,7 +1210,7 @@ function load(){
   var t0 = Date.now();
   return api('/api/today?me=' + PID).then(function(r){
     S.offset = r.now - Math.round((t0 + Date.now()) / 2);
-    S.day = r.day; S.no = r.no; S.n = r.n;
+    S.day = r.day; S.no = r.no; S.n = r.n; S.dayN = r.n;
     var m = r.mine;
     if (m) {
       S.started = m.started; S.elapsed = m.elapsed; S.solved = m.solved; S.gaveup = m.gaveup; S.answer = m.answer;
@@ -1235,14 +1243,26 @@ function load(){
   });
 }
 
-fetch('data/brands.json?v=c427e20d52').then(function(r){ return r.json(); }).then(function(m){
-  U = m.brands;
-  U.forEach(function(u, i){
-    BY[u.id] = i;
-    u.cho = cho(u.name);
-    u.keys = [norm(u.name), norm(u.en)].concat(u.alias.map(norm)).filter(Boolean);
-  });
+var BASE_U = null, FAM_U = null;
+function prepList(list){
+  list.forEach(function(u){ u.cho = cho(u.name); u.keys = [norm(u.name), norm(u.en)].concat(u.alias.map(norm)).filter(Boolean); });
+  return list;
+}
+function useList(list){
+  if (!list || U === list) return;
+  U = list; BY = {};
+  U.forEach(function(u, i){ BY[u.id] = i; });
   buildGroups();
+  VIEW.k = 1; VIEW.x = VIEW.y = 0; HOV = -1; HL = null;
+  draw();
+}
+function loadFamous(){
+  if (FAM_U) return Promise.resolve();
+  return fetch('data/brands_famous.json?v=ccb8ec5423').then(function(r){ return r.json(); }).then(function(m){ FAM_U = prepList(m.brands); });
+}
+fetch('data/brands.json?v=c427e20d52').then(function(r){ return r.json(); }).then(function(m){
+  BASE_U = prepList(m.brands);
+  U = null; useList(BASE_U);
   buildMap();
   return load();
 }).catch(function(e){ msg('브랜드 목록을 못 불러왔습니다: ' + e.message, true); });
@@ -1277,6 +1297,7 @@ $('#btnStart').addEventListener('click', function(){ (S.solved || S.gaveup) ? op
 $('#dlgDone').addEventListener('close', function(){ if (!S.free && (S.solved || S.gaveup) && $('#title').hidden) backToTitle(); });
 $('#btnFree').addEventListener('click', function(){ startFree(false); });
 $('#btnHard').addEventListener('click', function(){ startFree(true); });
+$('#btnFamous').addEventListener('click', function(){ startFree(false, true); });
 $('#tabToday').addEventListener('click', function(){ openBoard('today'); });
 $('#tabAll').addEventListener('click', function(){ openBoard('all'); });
 $('#tabBest').addEventListener('click', function(){ openBoard('best'); });

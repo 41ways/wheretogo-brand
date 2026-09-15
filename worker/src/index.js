@@ -11,11 +11,15 @@
    GET  /api/free                                          무한 연습 새 판 (표 하나)
    POST /api/free/guess            { rid, id }             무한 연습 점수·순위
    POST /api/free/giveup           { rid }                 무한 연습 정답 공개
+   GET  /api/famous                                        유명 모드(200개) 새 판
+   POST /api/famous/guess          { rid, id, pid, seq }   유명 모드 점수·순위·닮은 점
+   POST /api/famous/giveup         { rid, pid, seq }       유명 모드 정답 공개
+   연습 판 부르기는 events 표에 로그로 남는다 (mode·wver·순위·닮은 점)
 
    정답은 여기서만 안다. 브라우저에 유사도 수치는 안 나간다 — "가까운 순서", 그걸로 매긴 점수, 닮은 묶음 이름뿐.
    시간도 서버가 잰다 — 그날 첫 추측을 받은 순간부터 정답을 받은 순간까지.
    ══════════════════════════════════════════════════════════════════ */
-import { UNITS, N, INDEX, kstDay, puzzleNo, answerIndex, judge, freeAnswer } from './game.js';
+import { UNITS, N, INDEX, kstDay, puzzleNo, answerIndex, judge, freeAnswer, FAMOUS } from './game.js';
 
 const MAX_BODY = 2 * 1024;
 const MAX_NAME = 12;
@@ -116,6 +120,17 @@ async function myState(env, day, pid, ans) {
   };
 }
 
+// ══════════════════════════════════ 로그
+const WVER = { free: 'base-v1', hard: 'base-v1', famous: 'famous-hybrid200-t1' };
+function logEvent(env, ctx, e) {
+  const p = env.DB.prepare('INSERT INTO events (at, mode, wver, rid, pid, kind, seq, guess, rank, n, near) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)')
+    .bind(Date.now(), e.mode, WVER[e.mode] || '', e.rid, pidOk(e.pid) ? e.pid : '', e.kind, Number.isInteger(e.seq) ? e.seq : 0,
+          e.guess || '', e.rank == null ? null : e.rank, e.n, (e.near || []).join('|'));
+  const run = p.run().catch(() => {});        // 로그가 실패해도 게임 응답은 막지 않는다
+  if (ctx && ctx.waitUntil) ctx.waitUntil(run);
+}
+const famousOut = i => ({ id: FAMOUS.UNITS[i].id, name: FAMOUS.UNITS[i].name, full: FAMOUS.UNITS[i].full });
+
 // ══════════════════════════════════ 요청
 async function readBody(req) {
   const raw = await req.text();
@@ -124,7 +139,7 @@ async function readBody(req) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const origin = req.headers.get('Origin') || '';
     const h = headers(origin, env, req.method === 'GET' ? 'GET' : 'POST');
@@ -205,6 +220,12 @@ export default {
         return json({ rid, n: N }, 200, h);
       }
 
+      if (url.pathname === '/api/famous' && req.method === 'GET') {
+        const b = new Uint8Array(16);
+        crypto.getRandomValues(b);
+        return json({ rid: Array.from(b, x => x.toString(16).padStart(2, '0')).join(''), n: FAMOUS.N }, 200, h);
+      }
+
       if (url.pathname === '/api/top' && req.method === 'GET') {
         const day = parseInt(url.searchParams.get('day'), 10);
         if (!Number.isInteger(day)) return json({ error: 'day' }, 400, h);
@@ -226,11 +247,32 @@ export default {
         const rid = String(body.rid || '');
         if (!/^[0-9a-f]{32}$/.test(rid)) return json({ error: 'rid' }, 400, h);
         const fans = freeAnswer(rid, salt);
-        if (url.pathname === '/api/free/giveup') return json({ answer: unitOut(fans) }, 200, h);
+        const mode = body.hard ? 'hard' : 'free';
+        if (url.pathname === '/api/free/giveup') {
+          logEvent(env, ctx, { mode, rid, pid: body.pid, kind: 'giveup', seq: body.seq, guess: UNITS[fans].id, n: N });
+          return json({ answer: unitOut(fans) }, 200, h);
+        }
         const fg = INDEX.get(String(body.id));
         if (fg == null) return json({ error: '없는 브랜드' }, 400, h);
         const fres = { ...judge(fans, fg), n: N };
         if (fres.correct) fres.answer = unitOut(fans);
+        logEvent(env, ctx, { mode, rid, pid: body.pid, kind: fres.correct ? 'solve' : 'guess', seq: body.seq, guess: fres.id, rank: fres.rank, n: N, near: fres.near });
+        return json(fres, 200, h);
+      }
+
+      if (url.pathname === '/api/famous/guess' || url.pathname === '/api/famous/giveup') {
+        const rid = String(body.rid || '');
+        if (!/^[0-9a-f]{32}$/.test(rid)) return json({ error: 'rid' }, 400, h);
+        const fans = FAMOUS.freeAnswer(rid, salt);
+        if (url.pathname === '/api/famous/giveup') {
+          logEvent(env, ctx, { mode: 'famous', rid, pid: body.pid, kind: 'giveup', seq: body.seq, guess: FAMOUS.UNITS[fans].id, n: FAMOUS.N });
+          return json({ answer: famousOut(fans) }, 200, h);
+        }
+        const fg = FAMOUS.INDEX.get(String(body.id));
+        if (fg == null) return json({ error: '유명 모드에 없는 브랜드' }, 400, h);
+        const fres = { ...FAMOUS.judge(fans, fg), n: FAMOUS.N };
+        if (fres.correct) fres.answer = famousOut(fans);
+        logEvent(env, ctx, { mode: 'famous', rid, pid: body.pid, kind: fres.correct ? 'solve' : 'guess', seq: body.seq, guess: fres.id, rank: fres.rank, n: FAMOUS.N, near: fres.near });
         return json(fres, 200, h);
       }
 

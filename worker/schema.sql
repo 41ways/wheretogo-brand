@@ -35,3 +35,23 @@ CREATE TABLE IF NOT EXISTS owners (
   made INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS owners_tag ON owners (tag);
+
+-- 플레이 로그 — 연습 판(무한·하드·유명 모드)의 부르기·맞힘·포기를 한 줄씩. 오늘 판은 plays 에 이미 남는다.
+-- 사람을 알아볼 정보는 없다: pid 는 브라우저가 만든 무작위 id.
+-- wver 는 모델·가중치 판 (A/B 를 켜면 판마다 다른 값이 들어간다)
+CREATE TABLE IF NOT EXISTS events (
+  id    INTEGER PRIMARY KEY AUTOINCREMENT,
+  at    INTEGER NOT NULL,          -- ms
+  mode  TEXT    NOT NULL,          -- free · hard · famous
+  wver  TEXT    NOT NULL,
+  rid   TEXT    NOT NULL,          -- 판 표
+  pid   TEXT    NOT NULL DEFAULT '',
+  kind  TEXT    NOT NULL,          -- guess · solve · giveup
+  seq   INTEGER NOT NULL DEFAULT 0,-- 그 판에서 몇 번째 부르기 (브라우저가 셈)
+  guess TEXT    NOT NULL DEFAULT '',
+  rank  INTEGER,
+  n     INTEGER NOT NULL,
+  near  TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS events_rid ON events (rid, id);
+CREATE INDEX IF NOT EXISTS events_mode ON events (mode, at);
